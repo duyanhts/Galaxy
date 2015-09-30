@@ -1,0 +1,1184 @@
+﻿<html>
+<head>
+    <title>Demo Draw Image</title>
+    <style>
+        .controls {
+            background: #fafafa;
+            margin-left: 10px;
+            padding: 15px;
+        }
+
+            .controls table td {
+                text-align: center;
+                vertical-align: top;
+                border: 1px dotted #aaa;
+            }
+
+            .controls div {
+                padding: 25px;
+            }
+
+        .controls2 a {
+            padding: 15px;
+        }
+
+        .canvas-container {
+            display: inline-block;
+            vertical-align: top;
+        }
+
+        input[disabled] {
+            opacity: 0.5;
+        }
+
+        #bd-wrapper {
+            min-width: 1600px;
+        }
+
+        .canvas {
+            position: absolute;
+        }
+
+        #combine-output {
+            margin-top: 30px;
+        }
+
+            #combine-output table td {
+                border: 1px dotted #aaa;
+            }
+
+            #combine-output div {
+                display: inline-flex;
+            }
+
+        .suggestion {
+            display: inline-flex;
+        }
+
+        .active-color-choose {
+            border: 5px dotted #aaa;
+        }
+    </style>
+	<meta charset="utf-8">
+    <meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no, width=device-width">
+    <title></title>
+
+    <link href="css/style.css" rel="stylesheet">
+	<script type="text/javascript" src="cordova.js"></script>
+    <script type="text/javascript" src="cordova_plugins.js"></script>
+    <script src="Script/jquery-2.1.4.min.js" type="text/javascript"></script>
+    <script type='text/javascript' src="Script/fabric.js"></script>
+    <script type='text/javascript' src='Script/tinycolor.js'></script>
+    <script type='text/javascript' src='Script/FileSaver.js'></script>
+    <script type='text/javascript' src='Script/canvas-toBlob.js'></script>
+   
+    <script type="text/javascript" src="js/index.js"></script>
+    <script>
+        var canvas;
+        var currentImageSorce = null;
+
+        var drawPoly = false, pointPoly = [], groupLine = [];
+        var drawRect = false, groupRect = [];
+        var drawCirc = false, groupCirc = [];
+
+        var State_current;
+        var State_list = [];
+        var State_state = [];
+        var State_index = -1;
+
+        var DataToSaveLayer = null; // temp value when save layer to file
+
+        $(document).ready(function () {
+            var valueCancelDrawPoly = 10;
+            var ValueFieldsForObject = {
+                fill: "transparent",
+                borderColor: "rgba(255, 0, 0, 0.2)",
+                stroke: "rgba(32, 32, 32, 200)",
+                strokeWidth: 1.5,
+                strokeDashArray: [8, 4, 4, 8],
+                strokeTmp: 'rgba(255, 0, 0, 0.6)',
+                strokeWidthTmp: 1
+            };
+
+            var widthNew = ($(window).width() * 97) / 100;
+            drawPoly = false;
+
+            fabric.Object.prototype.transparentCorners = false;
+
+            canvas = this.__canvas = new fabric.Canvas('c'),
+                f = fabric.Image.filters;
+
+            SetBackgroundImage('Img/printio.jpg');
+
+            canvas.on("object:selected", function () {
+              var filters = ['grayscale','tint', 'multiply', 'brightness', 'blur', 'sharpen' ];
+                var colorControl = ['tint', 'multiply'];
+                var RangeValueControl = ['brightness', 'tint'];
+
+                var obj = canvas.getActiveObject();
+                if (obj != undefined) {
+
+                    SetNewIndexObject(obj);// Change index to first when select object
+                    obj.hasRotatingPoint = false;//set disabled rotation
+
+                    for (var i = 0; i < filters.length; i++) {
+                        var staticcanvas = obj.PatternImageContent;
+                        if (staticcanvas != undefined && staticcanvas.filters != undefined) {
+                            $("#" + filters[i]).prop("checked", !!staticcanvas.filters[i]);
+                            if (!!staticcanvas.filters[i]) {
+                                if ($.inArray(staticcanvas.filters[i].type.toLowerCase(), colorControl) > -1) {
+                                    $("#" + filters[i] + "-color").val(staticcanvas.filters[i].color);
+                                }
+                                if ($.inArray(staticcanvas.filters[i].type.toLowerCase(), RangeValueControl) > -1) {
+                                    //get value of filter here
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            canvas.on("object:modified", function (e) {
+                var object = e.target;
+                SaveStateHistory(object, "modified");
+            });
+
+            canvas.observe("mouse:down", function (event) {
+                var pos = canvas.getPointer(event.e);
+
+                GetColor(pos);
+
+                if (drawPoly == true) {
+                    //Draw line before draw polygon
+                    var position = { x: pos.x, y: pos.y };
+                    pointPoly.push(position);
+
+                    if (pointPoly.length > 1) {
+                        var pointLine = [pointPoly[pointPoly.length - 2].x,
+                            pointPoly[pointPoly.length - 2].y,
+                            pointPoly[pointPoly.length - 1].x,
+                            pointPoly[pointPoly.length - 1].y];
+
+                        var line = new fabric.Line(pointLine, {
+                            originX: 'center',
+                            originY: 'center',
+                            stroke: ValueFieldsForObject.stroke,
+                            strokeWidth: ValueFieldsForObject.strokeWidth,
+                            fill: ValueFieldsForObject.fill,
+                            strokeDashArray: ValueFieldsForObject.strokeDashArray
+                        });
+                        line.selectable = false;
+                        groupLine.push(line);
+                        canvas.add(line);
+                    } else {
+                        var newCircle = new fabric.Circle({
+                            top: pos.y - valueCancelDrawPoly,
+                            left: pos.x - valueCancelDrawPoly,
+                            radius: valueCancelDrawPoly,
+                            fill: ValueFieldsForObject.fill,
+                            borderColor: ValueFieldsForObject.borderColor,
+                            stroke: ValueFieldsForObject.strokeTmp,
+                            strokeWidth: ValueFieldsForObject.strokeWidthTmp
+                        });
+                        newCircle.selectable = false;
+                        groupLine.push(newCircle);
+                        canvas.add(newCircle);
+                    }
+                }
+                else if (drawRect == true) {
+                    if (typeof event.target != "undefined") {
+                        return;
+                    } else {
+                        //draw temp rect when init
+                        var rect = new fabric.Rect({
+                            top: pos.y,
+                            left: pos.x,
+                            width: 0,
+                            height: 0,
+                            fill: ValueFieldsForObject.fill,
+                            stroke: ValueFieldsForObject.stroke,
+                            strokeWidth: ValueFieldsForObject.strokeWidth,
+                            strokeDashArray: ValueFieldsForObject.strokeDashArray
+                        });
+                        canvas.add(rect);
+                        groupRect.push(rect);
+                    }
+                }
+                else if (drawCirc == true) {
+                    if (typeof event.target != "undefined") {
+                        return;
+                    } else {
+                        //draw temp circ when init
+                        var circle = new fabric.Circle({
+                            top: pos.y,
+                            left: pos.x,
+                            width: 0,
+                            height: 0,
+                            radius: 0,
+                            fill: ValueFieldsForObject.fill,
+                            stroke: ValueFieldsForObject.stroke,
+                            strokeWidth: ValueFieldsForObject.strokeWidth,
+                            strokeDashArray: ValueFieldsForObject.strokeDashArray
+                        });
+                        canvas.add(circle);
+                        groupCirc.push(circle);
+                    }
+                }
+            });
+
+            canvas.observe("mouse:move", function (event) {
+                var pos = canvas.getPointer(event.e);
+                if (drawRect == true) {
+                    //re-set option tmp rect when create
+                    var rect = groupRect[0];
+                    if (rect != undefined && rect != null) {
+                        rect.set('width', pos.x - rect.left);
+                        rect.set('height', pos.y - rect.top);
+                    }
+                }
+                else if (drawCirc == true) {
+                    //re-set option tmp circ when create
+                    var circle = groupCirc[0];
+                    if (circle != undefined && circle != null) {
+                        circle.set('width', pos.x - circle.left);
+                        circle.set('height', pos.y - circle.top);
+                        var radius = (Math.sqrt((circle.width * circle.width) + (circle.height * circle.height))) / 4;
+                        circle.set('radius', radius);
+                    }
+                }
+            });
+
+            canvas.observe("mouse:up", function (event) {
+                var pos = canvas.getPointer(event.e);
+                if (drawPoly == true) {
+                    //draw polygon after finish draw line
+                    if (pointPoly.length > 3) {
+                        var position = { x: pos.x, y: pos.y };
+                        if ((Math.abs(pointPoly[0].x - pointPoly[pointPoly.length - 1].x) <= valueCancelDrawPoly) &&
+                            (Math.abs(pointPoly[0].y - pointPoly[pointPoly.length - 1].y) <= valueCancelDrawPoly)) {
+
+                            pointPoly.push(position);
+                            var pointLine = [pointPoly[pointPoly.length - 2].x,
+                                pointPoly[pointPoly.length - 2].y,
+                                pointPoly[pointPoly.length - 1].x,
+                                pointPoly[pointPoly.length - 1].y];
+
+                            var line = new fabric.Line(pointLine, {
+                                originX: 'center',
+                                originY: 'center',
+                                fill: ValueFieldsForObject.fill,
+                                stroke: ValueFieldsForObject.stroke,
+                                strokeWidth: ValueFieldsForObject.strokeWidth,
+                                strokeDashArray: ValueFieldsForObject.strokeDashArray
+                            });
+                            line.selectable = false;
+                            groupLine.push(line);
+                            canvas.add(line);
+
+                            CreatePolygonAfterDraw();
+                        }
+                    }
+                }
+                else if (drawRect == true) {
+                    //draw rect when create
+                    CreateRectangleAfterDraw();
+                }
+                else if (drawCirc == true) {
+                    //draw circ when create
+                    CreateCircleAfterDraw();
+                }
+            });
+
+            //###########Handler event when apply filters###################
+
+            $('#tint').change(function () {
+                applyFilter(1, this.checked && new f.Tint({
+                    color: $('#tint-color').val(),
+                    opacity: parseFloat($('#tint-opacity').val())
+                }));
+                if (this.checked)
+                    RebindShowColor($('#tint-color').val(), 1);
+            });
+
+            $('#tint-color').change(function () {
+                applyFilterValue(1, 'color', this.value);
+                RebindShowColor(this.value, 1);
+            });
+
+            $('#tint-opacity').change(function () {
+                applyFilterValue(1, 'opacity', parseFloat(this.value));
+            });
+
+            $('#multiply').change(function () {
+                applyFilter(0, this.checked && new f.Grayscale());
+
+                applyFilter(2, this.checked && new f.Multiply({
+                    color: $('#multiply-color').val()
+                }));
+                if (this.checked)
+                    RebindShowColor($('#multiply-color').val(), 2);
+            });
+
+            $('#multiply-color').change(function () {
+                applyFilterValue(2, 'color', this.value);
+                RebindShowColor(this.value, 2);
+            });
+			
+            $('#brightness').change(function () {
+                applyFilter(3, this.checked && new f.Brightness({
+                    brightness: parseInt($('#brightness-value').val(), 10)
+                }));
+            });
+
+            $('#brightness-value').change(function () {
+                applyFilterValue(3, 'brightness', parseInt(this.value, 10));
+            });
+
+            $('#blur').change(function () {
+                applyFilter(4, this.checked && new f.Convolute({
+                    matrix: [1 / 9, 1 / 9, 1 / 9,
+                              1 / 9, 1 / 9, 1 / 9,
+                              1 / 9, 1 / 9, 1 / 9]
+                }));
+            });
+
+            $('#sharpen').change(function () {
+                applyFilter(5, this.checked && new f.Convolute({
+                    matrix: [0, -1, 0,
+                              -1, 5, -1,
+                               0, -1, 0]
+                }));
+            });
+            //###########Handler event when apply filters###################
+
+
+            //==============Draw & Apply Filters=================
+            $('#file-input').change(function (e) {
+                //Change background
+                var file = e.target.files[0],
+                    imageType = /image.*/;
+
+                if (!file.type.match(imageType))
+                    return;
+
+                var reader = new FileReader();
+                reader.onload = function (e) {
+                    canvas.clear();
+                    ResetHistory();
+                    SetBackgroundImage(e.target.result);
+                };
+                reader.readAsDataURL(file);
+            });
+
+            $("#drawRect").click(function () {
+                drawRect = true;
+                groupRect = [];
+
+                drawCirc = false;
+                groupCirc = [];
+                drawPoly = false;
+                pointPoly = [];
+                groupLine = [];
+                $.each(canvas.getObjects(), function (index, element) {
+                    element.selectable = false;
+                    canvas.discardActiveObject();
+                });
+            });
+            $("#drawCirc").click(function () {
+                drawCirc = true;
+                groupCirc = [];
+
+                drawRect = false;
+                groupRect = [];
+                drawPoly = false;
+                pointPoly = [];
+                groupLine = [];
+                $.each(canvas.getObjects(), function (index, element) {
+                    element.selectable = false;
+                    canvas.discardActiveObject();
+                });
+            });
+            $("#drawPoly").click(function () {
+                drawPoly = true;
+                pointPoly = [];
+                groupLine = [];
+
+                drawCirc = false;
+                groupCirc = [];
+                drawRect = false;
+                groupRect = [];
+                $.each(canvas.getObjects(), function (index, element) {
+                    element.selectable = false;
+                    canvas.discardActiveObject();
+                });
+            });
+
+            function SetBackgroundImage(imgSrc) {
+
+                //var img = document.createElement("img");
+                //img.src = imgSrc;
+                //img.onload = function () {
+                //    // Resize the image
+                //    var MAX_WIDTH = 1000;
+                //    var MAX_HEIGHT = 1000;
+                //    var width = this.width;
+                //    var height = this.height;
+
+                //    if (width > height) {
+                //        if (width > MAX_WIDTH) {
+                //            height *= MAX_WIDTH / width;
+                //            width = MAX_WIDTH;
+                //        }
+                //    } else {
+                //        if (height > MAX_HEIGHT) {
+                //            width *= MAX_HEIGHT / height;
+                //            height = MAX_HEIGHT;
+                //        }
+                //    }
+                //    this.width = width;
+                //    this.height = height;
+                //}
+                //console.log(img.width);
+
+                //var oImg = new  fabric.Image(img);
+                //var imgNew = oImg.scaleToWidth(widthNew);
+
+                //currentImageSorce = imgNew.getSrc();
+
+                //ResizeCanvas(imgNew);
+                //canvas.setBackgroundImage(imgNew, canvas.renderAll.bind(canvas));
+
+
+
+
+
+
+                fabric.Image.fromURL(imgSrc, function (oImg) {
+				// Resize the image
+                    var MAX_WIDTH = 1000;
+                    var MAX_HEIGHT = 1000;
+                    var width = oImg.width;
+                    var height = oImg.height;
+
+                    if (width > height) {
+                        if (width > MAX_WIDTH) {
+                            height *= MAX_WIDTH / width;
+                            width = MAX_WIDTH;
+                        }
+                    } else {
+                        if (height > MAX_HEIGHT) {
+                            width *= MAX_HEIGHT / height;
+                            height = MAX_HEIGHT;
+                        }
+                    }
+					oImg.width = width;
+					oImg.height = height;
+                    					
+                    var img = oImg.scaleToWidth(widthNew);
+					
+                    currentImageSorce = img.getSrc();
+					
+                    ResizeCanvas(img);
+                    canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas));
+                });
+            }
+
+            function ResizeCanvas(img) {
+                var percent = (100 * widthNew) / img.width;
+                var newHeight = (percent * img.height) / 100;
+                canvas.setHeight(newHeight);
+                canvas.setWidth(widthNew);
+            }
+
+            function SetNewIndexObject(obj) {
+                var idxObject = canvas.getObjects().indexOf(obj);
+                var newIdx = canvas.getObjects().length;
+                fabric.util.removeFromArray(canvas.getObjects(), obj);
+                canvas.getObjects().splice(newIdx, 0, obj);
+                canvas.renderAll();
+                //canvas.bringForward(obj);
+            }
+
+            function CreateCircleAfterDraw() {
+                var circle = groupCirc[0];
+                if (circle != undefined && circle != null) {
+                    var newCircle = new fabric.Circle({
+                        top: circle.top,
+                        left: circle.left,
+                        width: circle.width,
+                        height: circle.height,
+                        radius: circle.radius,
+                        borderColor: ValueFieldsForObject.borderColor,
+                        stroke: ValueFieldsForObject.stroke,
+                        strokeWidth: ValueFieldsForObject.strokeWidth,
+                        strokeDashArray: ValueFieldsForObject.strokeDashArray
+                    });
+
+                    SetPaternFillAndDraw(circle, newCircle, "circ");
+                }
+
+            }
+
+            function CreateRectangleAfterDraw() {
+                var rect = groupRect[0];
+                if (rect != undefined && rect != null) {
+                    var newRect = new fabric.Rect({
+                        top: rect.top,
+                        left: rect.left,
+                        width: rect.width,
+                        height: rect.height,
+                        borderColor: ValueFieldsForObject.borderColor,
+                        stroke: ValueFieldsForObject.stroke,
+                        strokeWidth: ValueFieldsForObject.strokeWidth,
+                        strokeDashArray: ValueFieldsForObject.strokeDashArray
+                    });
+                    SetPaternFillAndDraw(rect, newRect, "rect");
+                }
+            }
+
+            function CreatePolygonAfterDraw() {
+                var polygon = new fabric.Polygon(pointPoly, {
+                    borderColor: ValueFieldsForObject.borderColor,
+                    stroke: ValueFieldsForObject.stroke,
+                    strokeWidth: ValueFieldsForObject.strokeWidth,
+                    strokeDashArray: ValueFieldsForObject.strokeDashArray
+                });
+                SetPaternFillAndDraw(null, polygon, "poly");
+            }
+
+            function SetPaternFillAndDraw(object, newObject, type) {
+                var patternSourceCanvas = new fabric.StaticCanvas();
+                fabric.Image.fromURL(currentImageSorce, function (oImg) {
+                    var top = newObject.top;
+                    var left = newObject.left;
+
+                    var img = oImg.scaleToWidth(canvas.width);
+                    img.set({
+                        left: -left,
+                        top: -top,
+                    });
+
+                    patternSourceCanvas.add(img);
+
+                    var pattern = new fabric.Pattern({
+                        source: function () {
+                            patternSourceCanvas.setDimensions({
+                                width: img.getWidth(),
+                                height: img.getHeight()
+                            });
+                            return patternSourceCanvas.getElement();
+                        },
+                        repeat: 'no-repeat'
+                    });
+                    newObject.fill = pattern;
+                    newObject.PatternImageContent = img;
+
+                    if (type == "poly") {
+                        $.each(groupLine, function (index, value) {
+                            canvas.remove(value);
+                        });
+                    } else {
+                        canvas.remove(object);
+                    }
+
+                    canvas.add(newObject);
+                    SaveStateHistory(newObject, "added");
+                    SaveStateHistory(newObject, "modified");
+
+                    canvas.setActiveObject(newObject);
+                    canvas.renderAll();
+
+                    if (type != undefined && type != null) {
+                        if (type == "circ") {
+                            drawCirc = false;
+                            groupCirc = [];
+                        }
+                        if (type == "rect") {
+                            drawRect = false;
+                            groupRect = [];
+                        }
+                        if (type == "poly") {
+                            drawPoly = false;
+                            groupLine = [];
+                            pointPoly = [];
+                        }
+                    }
+                });
+
+                $.each(canvas.getObjects(), function (index, element) { element.selectable = true; });
+            }
+
+            function applyFilter(index, filter) {
+                var obj = canvas.getActiveObject();
+                if (obj != undefined) {
+                    if (obj.filters != undefined) {
+                        SaveStateHistory(obj, "modified");
+                        obj.filters[index] = filter;
+                        obj.applyFilters(canvas.renderAll.bind(canvas));
+                        SaveStateHistory(obj, "modified");
+                    }
+                    var staticcanvas = obj.PatternImageContent;
+                    if (staticcanvas.filters != undefined) {
+                        SaveStateHistory(obj, "modified");
+                        staticcanvas.filters[index] = filter;
+                        staticcanvas.applyFilters(canvas.renderAll.bind(canvas));
+                        SaveStateHistory(obj, "modified");
+                    }
+                }
+            }
+
+            function applyFilterValue(index, prop, value) {
+                var obj = canvas.getActiveObject();
+                if (obj != undefined) {
+                    if (obj.filters != undefined && obj.filters[index]) {
+                        SaveStateHistory(obj, "modified");
+                        obj.filters[index][prop] = value;
+                        obj.applyFilters(canvas.renderAll.bind(canvas));
+                        SaveStateHistory(obj, "modified");
+                    }
+                    var staticcanvas = obj.PatternImageContent;
+                    if (staticcanvas.filters != undefined && staticcanvas.filters[index]) {
+                        SaveStateHistory(obj, "modified");
+                        staticcanvas.filters[index][prop] = value;
+                        staticcanvas.applyFilters(canvas.renderAll.bind(canvas));
+                        SaveStateHistory(obj, "modified");
+                    }
+                }
+            }
+
+            window.addEventListener("keydown", function (e) {
+                var delKey = 46;
+                if (e.keyCode == delKey) {
+                    DeleteObject();
+                }
+
+                if (e.which === 89 && e.ctrlKey) {
+                    redo();
+                }
+                if (e.which === 90 && e.ctrlKey) {
+                    undo();
+                }
+            });
+
+            function DeleteObject() {
+                if (canvas != undefined && canvas != null) {
+                    var activeObject = canvas.getActiveObject();
+                    if (activeObject != undefined && activeObject != null) {
+                        //SaveStateHistory(activeObject, "modified");
+                        canvas.discardActiveObject();
+                        canvas.remove(activeObject);
+                        SaveStateHistory(activeObject, "removed");
+                    }
+                }
+            }
+            //==============Draw & Apply Filters=================
+
+            //Undo/Redo Start============
+            $('#undo').click(function () {
+                undo();
+            });
+            $('#redo').click(function () {
+                redo();
+            });
+
+            function undo() {
+                if (State_index < 0) {
+                    State_index = -1;
+                    return;
+                }
+                ExecuteStateHistoryOptions();
+                State_index--;
+            }
+
+            function redo() {
+                if (State_index >= State_list.length - 1) {
+                    return;
+                }
+                State_index++;
+                ExecuteStateHistoryOptions();
+            }
+
+            function SaveStateHistory(object, eventName) {
+                object.saveState();
+                State_index++;
+                State_state[State_index] = JSON.stringify(object);
+                State_list[State_index] = {
+                    obj: object,
+                    eventName: eventName,
+                    FillPatternNew: object.fill,
+                    indexOfObj: canvas.getObjects().indexOf(object)
+                };
+                if (object.filters != undefined && object.filters != null) {
+                    var filters = [];
+                    $.each(object.filters, function (index, element) {
+                        filters.push(element);
+                    });
+                    State_list[State_index].NewFilters = filters;
+                }
+                if (object.PatternImageContent != undefined && object.PatternImageContent != null && object.PatternImageContent.filters != undefined && object.PatternImageContent.filters != null) {
+                    var filtersPattern = [];
+                    $.each(object.PatternImageContent.filters, function (index, element) {
+                        filtersPattern.push(element);
+                    });
+                    State_list[State_index].NewFiltersPattern = filtersPattern;
+                }
+
+                RefreshHistory();
+            }
+
+            function ExecuteStateHistoryOptions() {
+                var currObj = State_list[State_index];
+                State_current = currObj.obj;
+                State_current.setOptions(JSON.parse(State_state[State_index]));
+                State_current.setCoords();
+
+                if (currObj.FillPatternNew != undefined && currObj.FillPatternNew != null)
+                    State_current.fill = currObj.FillPatternNew;
+
+                var staticcanvas = State_current.PatternImageContent;
+                //apply Filters
+                var filtersPattern = currObj.NewFiltersPattern;
+                staticcanvas.filters = filtersPattern;
+                staticcanvas.applyFilters(canvas.renderAll.bind(canvas));
+                //====
+                var isremove = false, isadd = false;
+                if (currObj.eventName == "added") {
+                    canvas.remove(State_current);
+                    isremove = true;
+                }
+                if (currObj.eventName == "removed") {
+                    canvas.insertAt(State_current, currObj.indexOfObj);
+                    isadd = true;
+                }
+                if (isremove)
+                    currObj.eventName = "removed";
+                else if (isadd)
+                    currObj.eventName = "added";
+
+                canvas.renderAll();
+            }
+
+            function RefreshHistory() {
+                var numElementToRemove = State_list.length - (State_index + 1);
+                if (numElementToRemove > 0) {
+                    State_list.splice(State_index + 1, numElementToRemove);
+                    State_state.splice(State_index + 1, numElementToRemove);
+                }
+            }
+
+            function ResetHistory() {
+                State_list = [];
+                State_index = -1;
+                State_current = null;
+                State_state = [];
+            }
+            //Undo/Redo End============
+
+            //==============Save & Load Img with layer=================
+            $("#save").click(function () {
+                //Save data object to temp field
+                var objtoSave = {};
+                objtoSave.background = canvas.backgroundColor;
+                objtoSave.backgroundImage = canvas.backgroundImage;
+                objtoSave.objects = [];
+                objtoSave.ImgPatern = [];
+                objtoSave.ImgFilters = [];
+
+                $.each(canvas.getObjects(), function (index, element) {
+                    GetObjectToSave(objtoSave, element, index);
+                });
+
+                DataToSaveLayer = JSON.stringify(objtoSave);
+            });
+
+            function GetObjectToSave(objtoSave, element, index) {
+                objtoSave.objects[index] = element;
+                objtoSave.ImgPatern[index] = element.PatternImageContent;
+                var newFilters = [];
+                $.each(element.PatternImageContent.filters, function (indexFilter, element) {
+                    var obj = {};
+                    obj.index = indexFilter;
+                    if (element != undefined) {
+                        obj.element = element;
+                    } else {
+                        obj.element = false;
+                    }
+                    newFilters.push(obj);
+                });
+                objtoSave.ImgFilters[index] = newFilters;
+            }
+
+            $("#loadlayer").click(function () {
+                //Load layer from temp field
+                canvas.clear();
+                var json = JSON.parse(DataToSaveLayer);
+                //set background
+                currentImageSorce = json.backgroundImage.src;
+                fabric.Image.fromURL(currentImageSorce, function (oImg) {
+                    var img = oImg.scaleToWidth(widthNew);
+                    ResizeCanvas(img);
+                    canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas));
+                });
+                //set object & filters
+                $.each(json.objects, function (indexObj, element) {
+                    var ImgPatern = json.ImgPatern[indexObj];
+                    var ImgFilters = json.ImgFilters[indexObj];
+                    SetOptionsForObject(indexObj, element, ImgPatern, ImgFilters);
+                });
+                canvas.renderAll();
+                ResetHistory();
+            });
+
+            function SetOptionsForObject(indexObj, element, ImgPatern, ImgFilters) {
+                if (element.type == "rect") {
+                    var newRrect = new fabric.Rect({
+                        top: element.top,
+                        left: element.left,
+                        width: element.width,
+                        height: element.height,
+                        borderColor: element.borderColor,
+                        stroke: element.stroke,
+                        strokeWidth: element.strokeWidth,
+                        strokeDashArray: element.strokeDashArray
+                    });
+                    SetPaternAndFilterObject(newRrect, currentImageSorce, ImgPatern, ImgFilters);
+                }
+                if (element.type == "circle") {
+                    var newCircle = new fabric.Circle({
+                        top: element.top,
+                        left: element.left,
+                        width: element.width,
+                        height: element.height,
+                        radius: element.radius,
+                        borderColor: element.borderColor,
+                        stroke: element.stroke,
+                        strokeWidth: element.strokeWidth,
+                        strokeDashArray: element.strokeDashArray
+                    });
+                    SetPaternAndFilterObject(newCircle, currentImageSorce, ImgPatern, ImgFilters);
+                }
+                if (element.type == "polygon") {
+                    var newPolygon = new fabric.Polygon(element.points, {
+                        top: element.top,
+                        left: element.left,
+                        width: element.width,
+                        height: element.height,
+                        stroke: element.stroke,
+                        strokeWidth: element.strokeWidth,
+                        strokeDashArray: element.strokeDashArray
+                    });
+                    SetPaternAndFilterObject(newPolygon, currentImageSorce, ImgPatern, ImgFilters);
+                }
+            }
+
+            function SetPaternAndFilterObject(objToSet, backgroundSRCPattern, ImgPatern, ImgFilters) {
+                var patternSourceCanvas = new fabric.StaticCanvas();
+                fabric.Image.fromURL(backgroundSRCPattern, function (oImg) {
+                    var img = oImg.scaleToWidth(canvas.width);
+                    img.set({
+                        left: ImgPatern.left,
+                        top: ImgPatern.top,
+                    });
+                    var padding = 0;
+                    patternSourceCanvas.add(img);
+
+                    var pattern = new fabric.Pattern({
+                        source: function () {
+                            patternSourceCanvas.setDimensions({
+                                width: img.getWidth() + padding,
+                                height: img.getHeight() + padding
+
+                            });
+                            return patternSourceCanvas.getElement();
+                        },
+                        repeat: 'no-repeat'
+                    });
+                    objToSet.fill = pattern;
+                    objToSet.PatternImageContent = img;
+                    canvas.add(objToSet);
+
+                    LoadAndApplyFilters(img, ImgFilters);
+
+                    canvas.renderAll();
+                });
+            }
+
+            function LoadAndApplyFilters(img, filters) {
+                var newFilters = [];
+                $.each(filters, function (index, element) {
+                    var filter = element.element;
+                    if (!filter) return;
+
+                    if (filter.type != undefined && filter.type.toLowerCase() == "grayscale") {
+                        newFilters[element.index] = new f.Grayscale();
+                    }
+                    if (filter.type != undefined && filter.type.toLowerCase() == "brightness") {
+                        newFilters[element.index] = new f.Brightness({
+                            brightness: filter.brightness
+                        });
+                    }
+                    if (filter.type != undefined && filter.type.toLowerCase() == "convolute") {
+                        newFilters[element.index] = new f.Convolute({
+                            matrix: filter.matrix
+                        });
+                    }
+                    if (filter.type != undefined && filter.type.toLowerCase() == "tint") {
+                        newFilters[element.index] = new f.Tint({
+                            color: filter.color,
+                            opacity: filter.opacity
+                        });
+                    }
+                    if (filter.type != undefined && filter.type.toLowerCase() == "multiply") {
+                        newFilters[element.index] = new f.Multiply({
+                            color: filter.color
+                        });
+                    }
+                });
+                img.filters = newFilters;
+                img.applyFilters(canvas.renderAll.bind(canvas));
+            }
+            //==============Save & Load Img with layer=================
+
+            RebindShowColor("grey");
+
+            function RebindShowColor(color, index) {
+                var tiny = tinycolor(color);
+
+                var combines = $("#combine-output").toggleClass("invisible", !tiny.isValid());
+
+                var mono = tiny.monochromatic();
+                combines.find(".mono").html(colorArrayToHTML(mono));
+
+                var triad = tiny.triad();
+                combines.find(".triad").html(colorArrayToHTML(triad));
+
+                var tetrad = tiny.tetrad();
+                combines.find(".tetrad").html(colorArrayToHTML(tetrad));
+
+                $(".color-choose-patone").click(function () {
+                    var color = $(this).attr("data-color");
+                    var tiny = tinycolor(color);
+                    var suggestion = $("#suggestion").toggleClass("invisible", !tiny.isValid());
+
+                    var mono = tiny.monochromatic();
+
+                    var hetHtmlColor = $.map(mono, function (e) {
+                        return "<div class=\"color-choose-patone-child\" data-color=\"" + e.toHexString() + "\" style=\"margin:5px;padding:5px;width:15px;height:15px;background:" + e.toHexString() + "\"></div>";
+                    }).join('');
+
+                    suggestion.find(".suggestion").html(hetHtmlColor);
+
+                    combines.find(".color-choose-patone").removeClass("active-color-choose");
+                    $(this).addClass("active-color-choose");
+
+                    if (index != undefined) {
+                        $(this).attr("data-index", index);
+                    }
+
+                    $(".color-choose-patone-child").click(function () {
+                        var color = $(this).attr("data-color");
+
+                        combines.find(".color-choose-patone").removeClass("active-color-choose");
+                        $(".color-choose-patone-child").removeClass("active-color-choose");
+                        $(this).addClass("active-color-choose");
+
+                        if (index != undefined) {
+                            $(this).attr("data-index", index);
+                        }
+                    });
+                });
+            }
+
+            function colorArrayToHTML(arr) {
+                return $.map(arr, function (e) {
+                    return "<div class=\"color-choose-patone\" data-color=\"" + e.toHexString() + "\" style=\"cursor: pointer;margin:5px;padding:5px;width:15px;height:15px;background:" + e.toHexString() + "\"></div>";
+                }).join('');
+            }
+
+            $("#choose_color").click(function () {
+                var combines = $("#combine-output").find(".active-color-choose").first();
+                if (combines.length <= 0) {
+                    combines = $("#suggestion").find(".active-color-choose").first();
+                }
+                var dataColor = combines.attr("data-color");
+                var dataIndex = combines.attr("data-index");
+
+                if (dataIndex != undefined && dataIndex != null && dataIndex != "") {
+                    if (dataColor != undefined && dataColor != null && dataColor != "") {
+                        applyFilterValue(dataIndex, "color", dataColor);
+                    }
+                }
+            });
+
+            $("#saveImg").click(function () {
+                downloadFabric(canvas, "GalaxyImage");
+            });
+
+            function downloadFabric(canvas, name) {
+                //canvas.deactivateAll();
+                //var url = canvas.toDataURL("image/png").replace("image/png", "image/octet-stream");
+                //var nameImg = name + '.png';
+                //$('<a>').attr({ href: url, download: nameImg })[0].click();
+                canvas.deactivateAll();
+                canvas.renderAll();
+
+                //var canvasTmp = document.getElementById("c");
+				console.log("duy anh 111");
+                window.canvas2ImagePlugin.saveImageDataToLibrary(
+                        function(msg){
+                         	console.log("duy anh" + msg);
+                        },
+                        function(err){
+                            console.log("duy anh" + err);
+                        },
+                        document.getElementById('c')
+                );
+            }
+
+            function GetColor(pos) {
+                var pixel = canvas.getContext().getImageData(pos.x, pos.y, 1, 1);
+                var data = pixel.data;
+                var rgba = 'rgba(' + data[0] + ',' + data[1] +
+                           ',' + data[2] + ',' + data[3] + ')';
+                $("#autoGetColor").css('background-color', rgba);
+
+
+            }
+        });
+    </script>
+</head>
+<body>
+    <table>
+        <tr style="vertical-align:top">
+            <td width="25%">
+                <div class="controls2">
+                    <h3>Choose Region:</h3>
+                    <a href="#" id="drawRect"><span>Hình vuông</span></a>
+                    <a href="#" id="drawCirc"><span>Hình tròn</span></a>
+                    <a href="#" id="drawPoly"><span>Hình đa giác</span></a>
+                    <!--<a href="#" id="autoSlelect"><span>Tự động chọn vùng</span></a>-->
+                </div>
+            </td>
+            <td width="15%">
+                <div class="controls2">
+                    <h3>Action:</h3>
+                    <input type="button" id="undo" value="Undo" />
+                    <input type="button" id="redo" value="redo" />
+                    <div id="autoGetColor" style="padding:10px;margin-top:5px;background-color:grey;"></div>
+                </div>
+            </td>
+            <td width="25%">
+                <div class="controls2">
+                    <h3>Action with layer:</h3>
+                    <button type="button" id="save">Save image with layer</button>
+                    <button type="button" id="loadlayer">Load Layer</button>
+                </div>
+            </td>
+            <td width="35%">
+                <div class="controls2">
+                    <h3>Action with image:</h3>
+                    <div style="display:inline-flex;">
+                        <input type="file" id="file-input">
+                        <button type="button" id="saveImg">Save as Image</button>
+                        <a id="GalaxyImage" style="display:none"></a>
+                    </div>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td colspan="4">
+                <hr style="margin:20px;" />
+                <div>
+                    <canvas class="canvas" id="c" width="600" height="600" style="border: 2px solid black;"></canvas>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td colspan="4">
+                <div class="controls">
+                    <table width="98%">
+                        <tr>
+                            <th colspan="5"><h3>Filters:</h3></th>
+                        </tr>
+                        <tr>
+                            <td>
+                                <div>
+                                    <label><span>Tint:</span> <input type="checkbox" id="tint"></label><br>
+                                    <label>Color: <input type="color" id="tint-color" value=""></label><br>
+                                    <label>Opacity: <input type="range" id="tint-opacity" min="0" max="1" value="1" step="0.1"></label><br>
+                                </div>
+                            </td>
+                            <td>
+                                <div>
+                                    <label><span>Multiply:</span> <input type="checkbox" id="multiply"></label><br>
+                                    <label>Color: <input type="color" id="multiply-color" value=""></label><br>
+                                </div>
+                            </td>
+                            <td>
+                                <div>
+                                    <label><span>Brightness:</span> <input type="checkbox" id="brightness"></label>
+                                    <br>
+                                    <label>Value: <input type="range" id="brightness-value" value="100" min="0" max="255"></label>
+                                </div>
+                            </td>
+                            <td>
+                                <div>
+                                    <label><span>Blur:</span> <input type="checkbox" id="blur"></label>
+                                </div>
+                            </td>
+                            <td>
+                                <div>
+                                    <label><span>Sharpen:</span> <input type="checkbox" id="sharpen"></label>
+                                </div>
+                            </td>
+                        </tr>
+                    </table>
+
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td colspan="4">
+                <div id='combine-output'>
+                    <table width="98%">
+                        <tr>
+                            <th colspan="3">Chọn màu Pantone</th>
+                        </tr>
+                        <tr>
+                            <th>Đơn sắc (Monochromatic)</th>
+                            <th>Bộ ba (Triad)</th>
+                            <th> Bộ bốn (Tetrad)</th>
+                        </tr>
+                        <tr>
+                            <td style="text-align:center;"><div class='mono'></div></td>
+                            <td style="text-align:center;"><div class='triad'></div></td>
+                            <td style="text-align:center;"><div class='tetrad'></div></td>
+                        </tr>
+                    </table>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td colspan="4">
+                <div id="suggestion" style="margin-top:20px;">
+                    <table width="98%">
+                        <tr>
+                            <th>Màu phù hợp (Suggestion Color)</th>
+                        </tr>
+                        <tr>
+                            <td style="text-align:center">
+                                <div class='suggestion'></div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="text-align:center">
+                                <input type="button" id="choose_color" value="Chọn màu" />
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
